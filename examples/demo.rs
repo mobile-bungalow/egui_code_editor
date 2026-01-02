@@ -154,6 +154,8 @@ struct CodeEditorDemo {
     shift: isize,
     numlines_only_natural: bool,
     lints: Vec<Lint>,
+    show_all_lints: bool,
+    show_hovered_lints: bool,
 }
 impl CodeEditorDemo {
     fn new(_cc: &CreationContext) -> Self {
@@ -167,7 +169,9 @@ impl CodeEditorDemo {
             example: true,
             shift: 0,
             numlines_only_natural: false,
-            lints: vec![Lint::error(16, 5, "Demo Lint: This would panic!".into())],
+            lints: vec![Lint::error(12, "Demo Lint: This would panic!".into())],
+            show_all_lints: false,
+            show_hovered_lints: true,
         }
     }
 }
@@ -218,6 +222,9 @@ impl eframe::App for CodeEditorDemo {
                 h.label("Numbering Shift");
                 h.add(egui::DragValue::new(&mut self.shift));
                 h.checkbox(&mut self.numlines_only_natural, "Only Natural Numbering");
+                h.separator();
+                h.checkbox(&mut self.show_hovered_lints, "Hover Lints");
+                h.checkbox(&mut self.show_all_lints, "Show All Lints");
             });
 
             let mut editor = CodeEditor::default()
@@ -229,7 +236,9 @@ impl eframe::App for CodeEditorDemo {
                 .with_numlines(true)
                 .with_numlines_shift(self.shift)
                 .with_numlines_only_natural(self.numlines_only_natural)
-                .with_lints(self.lints)
+                .with_lints(self.lints.clone())
+                .with_hovered_lints(self.show_hovered_lints)
+                .with_all_lints_shown(self.show_all_lints)
                 .vscroll(true);
 
             editor.show_with_completer(ui, &mut self.code, &mut self.completer);

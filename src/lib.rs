@@ -111,6 +111,9 @@ pub struct CodeEditor {
     numlines_shift: isize,
     numlines_only_natural: bool,
     lints: Vec<Lint>,
+    show_hovered_lints: bool,
+    show_lint: Option<usize>,
+    show_all_lints: bool,
     fontsize: f32,
     rows: usize,
     vscroll: bool,
@@ -145,6 +148,9 @@ impl Default for CodeEditor {
             stick_to_bottom: false,
             desired_width: f32::INFINITY,
             lints: vec![],
+            show_hovered_lints: true,
+            show_lint: None,
+            show_all_lints: false,
         }
     }
 }
@@ -163,6 +169,36 @@ impl CodeEditor {
     /// Lints are visual indicators (info, warnings, errors) shown at specific locations.
     pub fn with_lints(self, lints: Vec<Lint>) -> Self {
         CodeEditor { lints, ..self }
+    }
+
+    /// Enable or disable showing lint tooltips on hover
+    ///
+    /// **Default: true**
+    pub fn with_hovered_lints(self, show: bool) -> Self {
+        CodeEditor {
+            show_hovered_lints: show,
+            ..self
+        }
+    }
+
+    /// Force-show tooltip for a specific lint by index
+    ///
+    /// **Default: None**
+    pub fn with_show_lint(self, index: Option<usize>) -> Self {
+        CodeEditor {
+            show_lint: index,
+            ..self
+        }
+    }
+
+    /// Show all lint tooltips at once
+    ///
+    /// **Default: false**
+    pub fn with_all_lints_shown(self, show: bool) -> Self {
+        CodeEditor {
+            show_all_lints: show,
+            ..self
+        }
     }
 
     /// Minimum number of rows to show.
@@ -278,7 +314,7 @@ impl CodeEditor {
 
     #[cfg(feature = "egui")]
     fn numlines_show(&self, ui: &mut egui::Ui, text: &str) {
-        use egui::TextBuffer;
+        use std::collections::HashMap;
 
         let total = if text.ends_with('\n') || text.is_empty() {
             text.lines().count() + 1
@@ -286,53 +322,94 @@ impl CodeEditor {
             text.lines().count()
         }
         .max(self.rows) as isize;
+
         let max_indent = total
             .to_string()
             .len()
             .max(!self.numlines_only_natural as usize * self.numlines_shift.to_string().len());
-        let mut counter = (1..=total)
-            .map(|i| {
-                let num = i + self.numlines_shift;
-                if num <= 0 && self.numlines_only_natural {
-                    String::new()
+
+        // Index lints by line
+        let mut lints_by_line: HashMap<usize, Vec<&Lint>> = HashMap::new();
+        for lint in &self.lints {
+            lints_by_line.entry(lint.line).or_default().push(lint);
+        }
+        let has_lints = !self.lints.is_empty();
+
+        // Build layout job
+        let mut job = egui::text::LayoutJob::default();
+        let font_id = egui::FontId::monospace(self.fontsize);
+        let num_color = self.theme.type_color(TokenType::Comment(true));
+        let fmt = |color| egui::TextFormat::simple(font_id.clone(), color);
+
+        for i in 1..=total {
+            let line = i as usize;
+
+            if has_lints {
+                if let Some(lints) = lints_by_line.get(&line) {
+                    let level = lints
+                        .iter()
+                        .map(|l| l.level)
+                        .max()
+                        .unwrap_or(LintLevel::Info);
+                    job.append("● ", 0.0, fmt(self.theme.lint_color(level)));
                 } else {
-                    let label = num.to_string();
-                    format!(
-                        "{}{label}",
-                        " ".repeat(max_indent.saturating_sub(label.len()))
-                    )
+                    job.append("  ", 0.0, fmt(num_color));
                 }
-            })
-            .collect::<Vec<String>>()
-            .join("\n");
+            }
 
-        #[allow(clippy::cast_precision_loss)]
-        let width = max_indent as f32
-            * self.fontsize
-            * 0.5
-            * !(total + self.numlines_shift <= 0 && self.numlines_only_natural) as u8 as f32;
+            // Line number
+            let num = i + self.numlines_shift;
+            let label = if num <= 0 && self.numlines_only_natural {
+                String::new()
+            } else {
+                format!("{:>width$}", num, width = max_indent)
+            };
+            job.append(&label, 0.0, fmt(num_color));
 
-        let mut layouter = |ui: &egui::Ui, text_buffer: &dyn TextBuffer, _wrap_width: f32| {
-            let layout_job = egui::text::LayoutJob::single_section(
-                text_buffer.as_str().to_string(),
-                egui::TextFormat::simple(
-                    egui::FontId::monospace(self.fontsize),
-                    self.theme.type_color(TokenType::Comment(true)),
-                ),
-            );
-            ui.fonts_mut(|f| f.layout_job(layout_job))
-        };
+            if i < total {
+                job.append("\n", 0.0, fmt(num_color));
+            }
+        }
 
-        ui.add(
-            egui::TextEdit::multiline(&mut counter)
-                .id_source(format!("{}_numlines", self.id))
-                .font(egui::TextStyle::Monospace)
-                .interactive(false)
-                .frame(false)
-                .desired_rows(self.rows)
-                .desired_width(width)
-                .layouter(&mut layouter),
+        let galley = ui.fonts_mut(|f| f.layout_job(job));
+        let row_height = galley.rect.height() / total as f32;
+        let height = galley.rect.height().max(self.rows as f32 * row_height);
+        let (response, painter) = ui.allocate_painter(
+            egui::vec2(galley.rect.width(), height),
+            egui::Sense::hover(),
         );
+        painter.galley(response.rect.min, galley, num_color);
+        for (line, lints) in &lints_by_line {
+            let line_y = response.rect.min.y + (*line - 1) as f32 * row_height;
+            let tooltip_pos = egui::pos2(response.rect.max.x, line_y);
+
+            let force_show = self.show_all_lints
+                || self.show_lint.map_or(false, |idx| {
+                    self.lints.get(idx).map_or(false, |l| l.line == *line)
+                });
+
+            let hovered = self.show_hovered_lints
+                && response.hovered()
+                && ui.ctx().pointer_hover_pos().map_or(false, |pos| {
+                    let hover_line =
+                        ((pos.y - response.rect.min.y) / row_height).floor() as usize + 1;
+                    hover_line == *line
+                });
+
+            if force_show || hovered {
+                egui::Tooltip::always_open(
+                    ui.ctx().clone(),
+                    response.layer_id,
+                    egui::Id::new(("lint_tooltip", *line)),
+                    egui::Rect::from_min_size(tooltip_pos, egui::Vec2::ZERO),
+                )
+                .show(|ui| {
+                    for lint in lints {
+                        ui.colored_label(self.theme.lint_color(lint.level), &lint.content);
+                    }
+                });
+            }
+        }
     }
 
     #[cfg(feature = "egui")]

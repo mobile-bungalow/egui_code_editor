@@ -129,6 +129,16 @@ impl ColorTheme {
         .unwrap_or(ERROR_COLOR)
     }
 
+    #[cfg(feature = "egui")]
+    /// Get the color for a lint level
+    pub fn lint_color(&self, level: crate::lint::LintLevel) -> Color32 {
+        match level {
+            crate::lint::LintLevel::Error => self.type_color(TokenType::Keyword),
+            crate::lint::LintLevel::Warn => self.type_color(TokenType::Type),
+            crate::lint::LintLevel::Info => self.type_color(TokenType::Special),
+        }
+    }
+
     pub fn monocolor(
         dark: bool,
         bg: &'static str,
