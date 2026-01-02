@@ -2,7 +2,9 @@
 
 use eframe::{self, CreationContext, egui};
 use egui::TextEdit;
-use egui_code_editor::{self, CodeEditor, ColorTheme, Completer, Syntax, highlighting::Token};
+use egui_code_editor::{
+    self, CodeEditor, ColorTheme, Completer, Lint, Syntax, highlighting::Token,
+};
 
 const THEMES: [ColorTheme; 8] = [
     ColorTheme::AYU,
@@ -63,7 +65,9 @@ CodeEditor::default()
     .with_syntax(self.syntax.to_owned())
     .with_numlines(true)
     .vscroll(true)
-    .show(ui, &mut self.code);"#,
+    .show(ui, &mut self.code);
+
+    const { panic!("demonstrate a lint!"); };"#,
     ),
     SyntaxDemo::new(
         "Shell",
@@ -78,11 +82,11 @@ fi"#,
         "SQL",
         r#"select now(); -- what time it is?
 WITH employee_ranking AS (
-  SELECT 
-    employee_id as real, 
-    last_name, 
-    first_name, 
-    salary, 
+  SELECT
+    employee_id as real,
+    last_name,
+    first_name,
+    salary,
     dept_id
     RANK() OVER (PARTITION BY dept_id ORDER BY salary DESC) as ranking
   FROM employee
@@ -149,6 +153,7 @@ struct CodeEditorDemo {
     example: bool,
     shift: isize,
     numlines_only_natural: bool,
+    lints: Vec<Lint>,
 }
 impl CodeEditorDemo {
     fn new(_cc: &CreationContext) -> Self {
@@ -162,6 +167,7 @@ impl CodeEditorDemo {
             example: true,
             shift: 0,
             numlines_only_natural: false,
+            lints: vec![Lint::error(16, 5, "Demo Lint: This would panic!".into())],
         }
     }
 }
@@ -223,6 +229,7 @@ impl eframe::App for CodeEditorDemo {
                 .with_numlines(true)
                 .with_numlines_shift(self.shift)
                 .with_numlines_only_natural(self.numlines_only_natural)
+                .with_lints(self.lints)
                 .vscroll(true);
 
             editor.show_with_completer(ui, &mut self.code, &mut self.completer);

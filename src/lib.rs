@@ -70,6 +70,7 @@
 #[cfg(feature = "egui")]
 mod completer;
 pub mod highlighting;
+pub mod lint;
 mod syntax;
 #[cfg(test)]
 mod tests;
@@ -90,6 +91,8 @@ pub use themes::DEFAULT_THEMES;
 
 #[cfg(feature = "egui")]
 pub use crate::completer::Completer;
+#[cfg(feature = "editor")]
+pub use crate::lint::{Lint, LintLevel};
 
 #[cfg(feature = "egui")]
 pub trait Editor: Hash {
@@ -107,6 +110,7 @@ pub struct CodeEditor {
     numlines: bool,
     numlines_shift: isize,
     numlines_only_natural: bool,
+    lints: Vec<Lint>,
     fontsize: f32,
     rows: usize,
     vscroll: bool,
@@ -140,6 +144,7 @@ impl Default for CodeEditor {
             vscroll: true,
             stick_to_bottom: false,
             desired_width: f32::INFINITY,
+            lints: vec![],
         }
     }
 }
@@ -151,6 +156,13 @@ impl CodeEditor {
             id: id_source.into(),
             ..self
         }
+    }
+
+    /// Assign lints to be displayed in the editor
+    ///
+    /// Lints are visual indicators (info, warnings, errors) shown at specific locations.
+    pub fn with_lints(self, lints: Vec<Lint>) -> Self {
+        CodeEditor { lints, ..self }
     }
 
     /// Minimum number of rows to show.
